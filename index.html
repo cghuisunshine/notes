@@ -59,6 +59,7 @@
 
     button:focus-visible,
     input:focus-visible,
+    canvas:focus-visible,
     [contenteditable]:focus-visible {
       outline: 3px solid var(--focus);
       outline-offset: 1px;
@@ -324,6 +325,63 @@
       color: var(--accent);
     }
 
+    .handwriting-panel {
+      margin: -14px 0 26px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .handwriting-panel[hidden] { display: none; }
+
+    .handwriting-controls {
+      min-height: 43px;
+      padding: 5px 7px 5px 11px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      border-bottom: 1px solid var(--line);
+      background: var(--page);
+    }
+
+    .handwriting-label {
+      margin-right: auto;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .handwriting-controls .toolbar-button:disabled {
+      color: var(--faint);
+      cursor: default;
+      opacity: 0.55;
+    }
+
+    .handwriting-controls .toolbar-button:disabled:hover { background: transparent; }
+
+    .canvas-wrap {
+      position: relative;
+      height: 360px;
+      background-color: var(--paper);
+      background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent 35px,
+        var(--line) 36px
+      );
+    }
+
+    #handwritingCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    #handwritingCanvas.eraser-active { cursor: cell; }
+
     .toolbar-separator {
       width: 1px;
       height: 20px;
@@ -423,16 +481,20 @@
       .document { width: calc(100% - 36px); padding-top: 34px; }
       .save-status { overflow: hidden; text-overflow: ellipsis; }
       .topbar-divider { display: none; }
+      .canvas-wrap { height: 280px; }
     }
 
     @media print {
       body { overflow: visible; background: #fff; }
       .app { display: block; height: auto; }
-      .sidebar, .topbar, .format-toolbar { display: none !important; }
+      .sidebar, .topbar, .format-toolbar, .handwriting-controls { display: none !important; }
       .editor-shell, .editor-scroll { display: block !important; overflow: visible; }
       .document { width: 100%; padding: 0; }
       #title { color: #111; }
       #editor { color: #111; }
+      .handwriting-panel { margin: 18px 0 24px; border-color: #bbb; }
+      .handwriting-panel.has-ink[hidden] { display: block !important; }
+      .handwriting-panel:not(.has-ink) { display: none !important; }
     }
   </style>
 </head>
@@ -508,7 +570,36 @@
             <button class="toolbar-button" type="button" data-command="removeFormat" title="Clear formatting" aria-label="Clear formatting">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 4 16 16M8 4h10M13 4l-2.1 5.2M7.5 17H4l4-9"/></svg>
             </button>
+            <span class="toolbar-separator" aria-hidden="true"></span>
+            <button class="toolbar-button" id="toggleHandwriting" type="button" title="Handwriting canvas" aria-label="Open handwriting canvas" aria-expanded="false" aria-controls="handwritingPanel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 20 4.2-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m13.8 7.4 3 3M4 20h16"/></svg>
+            </button>
           </div>
+
+          <section class="handwriting-panel" id="handwritingPanel" aria-label="Handwriting canvas" hidden>
+            <div class="handwriting-controls" role="toolbar" aria-label="Handwriting tools">
+              <span class="handwriting-label">Handwriting</span>
+              <button class="toolbar-button active" id="penTool" type="button" aria-label="Use pen" aria-pressed="true" title="Pen">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 20 4.2-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m13.8 7.4 3 3"/></svg>
+              </button>
+              <button class="toolbar-button" id="eraserTool" type="button" aria-label="Use eraser" aria-pressed="false" title="Eraser">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m7.5 17.5-3-3a2 2 0 0 1 0-2.8l7.2-7.2a2 2 0 0 1 2.8 0l5 5a2 2 0 0 1 0 2.8l-5.2 5.2H7.5Z"/><path d="m10 7 7 7M7.5 17.5 5 20h14"/></svg>
+              </button>
+              <span class="toolbar-separator" aria-hidden="true"></span>
+              <button class="toolbar-button" id="undoInk" type="button" title="Undo stroke" aria-label="Undo last stroke" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 7-5 5 5 5"/><path d="M5 12h8a6 6 0 0 1 6 6"/></svg>
+              </button>
+              <button class="toolbar-button" id="clearInk" type="button" title="Clear handwriting" aria-label="Clear handwriting" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14"/></svg>
+              </button>
+              <button class="toolbar-button" id="closeHandwriting" type="button" title="Close canvas" aria-label="Close handwriting canvas">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+              </button>
+            </div>
+            <div class="canvas-wrap">
+              <canvas id="handwritingCanvas" tabindex="0" aria-label="Draw handwriting here with a mouse, touch, or stylus"></canvas>
+            </div>
+          </section>
 
           <div id="editor" contenteditable="true" role="textbox" aria-multiline="true" spellcheck="true" data-placeholder="Start writing…"></div>
         </article>
@@ -530,7 +621,8 @@
       const STORAGE_KEY = 'quiet-notes-v1';
       const THEME_KEY = 'quiet-notes-theme';
       const allowedTags = new Set(['P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'H2', 'H3', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'HR', 'DIV']);
-      const state = { notes: [], activeId: null, saveTimer: null, query: '' };
+      const state = { notes: [], activeId: null, saveTimer: null, query: '', handwritingOpen: false };
+      const inkState = { tool: 'pen', pointerId: null, currentStroke: null, dirty: false };
 
       const $ = (selector) => document.querySelector(selector);
       const elements = {
@@ -545,7 +637,14 @@
         saveStatus: $('#saveStatus'),
         editorShell: $('#editorShell'),
         emptyEditor: $('#emptyEditor'),
-        themeButton: $('#themeButton')
+        themeButton: $('#themeButton'),
+        handwritingPanel: $('#handwritingPanel'),
+        handwritingCanvas: $('#handwritingCanvas'),
+        toggleHandwriting: $('#toggleHandwriting'),
+        penTool: $('#penTool'),
+        eraserTool: $('#eraserTool'),
+        undoInk: $('#undoInk'),
+        clearInk: $('#clearInk')
       };
 
       function makeId() {
@@ -578,6 +677,29 @@
           }
         });
         return template.innerHTML;
+      }
+
+      function sanitizeInk(ink) {
+        if (!Array.isArray(ink)) return [];
+        return ink.slice(-2000).map((stroke) => {
+          if (!stroke || !Array.isArray(stroke.points)) return null;
+          const points = stroke.points.slice(0, 12000).map((point) => {
+            const x = Number(point?.x);
+            const y = Number(point?.y);
+            const pressure = Number(point?.p);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+            return {
+              x: Math.min(1, Math.max(0, x)),
+              y: Math.min(1, Math.max(0, y)),
+              p: Number.isFinite(pressure) ? Math.min(1, Math.max(0, pressure)) : 0.5
+            };
+          }).filter(Boolean);
+          if (!points.length) return null;
+          return {
+            width: Math.min(8, Math.max(1, Number(stroke.width) || 2.4)),
+            points
+          };
+        }).filter(Boolean);
       }
 
       function getActiveNote() {
@@ -638,7 +760,7 @@
 
         elements.noteList.innerHTML = filtered.map((note) => {
           const title = note.title.trim() || 'Untitled';
-          const preview = plainText(note.content) || 'Empty note';
+          const preview = plainText(note.content) || (note.ink?.length ? `${note.ink.length} handwritten ${note.ink.length === 1 ? 'stroke' : 'strokes'}` : 'Empty note');
           const active = note.id === state.activeId ? ' active' : '';
           return `<button class="note-item${active}" type="button" data-id="${escapeHtml(note.id)}" aria-current="${note.id === state.activeId ? 'page' : 'false'}">
             <span class="note-item-title">${escapeHtml(title)}</span>
@@ -649,7 +771,9 @@
 
       function renderMeta(note) {
         const words = wordCount(note.content);
-        elements.noteMeta.textContent = `Edited ${formatFullTime(note.updatedAt)} · ${words} ${words === 1 ? 'word' : 'words'}`;
+        const strokes = note.ink?.length || 0;
+        const inkMeta = strokes ? ` · ${strokes} handwritten ${strokes === 1 ? 'stroke' : 'strokes'}` : '';
+        elements.noteMeta.textContent = `Edited ${formatFullTime(note.updatedAt)} · ${words} ${words === 1 ? 'word' : 'words'}${inkMeta}`;
       }
 
       function renderActiveNote() {
@@ -659,17 +783,20 @@
         elements.emptyEditor.classList.toggle('visible', !hasNote);
         $('#deleteNote').disabled = !hasNote;
         $('#printNote').disabled = !hasNote;
+        elements.toggleHandwriting.disabled = !hasNote;
 
         if (!note) {
           elements.title.value = '';
           elements.editor.innerHTML = '';
           elements.noteMeta.textContent = '';
+          setHandwritingOpen(false);
           return;
         }
 
         elements.title.value = note.title;
         elements.editor.innerHTML = sanitizeHtml(note.content);
         renderMeta(note);
+        setHandwritingOpen(Boolean(note.ink?.length));
       }
 
       function closeSidebar() {
@@ -688,7 +815,7 @@
 
       function createNote() {
         const now = Date.now();
-        const note = { id: makeId(), title: '', content: '', createdAt: now, updatedAt: now };
+        const note = { id: makeId(), title: '', content: '', ink: [], createdAt: now, updatedAt: now };
         state.notes.push(note);
         state.activeId = note.id;
         state.query = '';
@@ -734,6 +861,7 @@
                 id: note.id,
                 title: String(note.title || ''),
                 content: sanitizeHtml(note.content),
+                ink: sanitizeInk(note.ink),
                 createdAt: Number(note.createdAt) || Date.now(),
                 updatedAt: Number(note.updatedAt) || Date.now()
               }));
@@ -751,6 +879,7 @@
             id: makeId(),
             title: 'Welcome to Notes',
             content: '<p>This page saves your notes automatically in this browser.</p><p>Create a new note with the <strong>+</strong> button, use the toolbar to format your writing, and export a backup whenever you like.</p>',
+            ink: [],
             createdAt: now,
             updatedAt: now
           };
@@ -766,12 +895,234 @@
         const dark = theme === 'dark';
         elements.themeButton.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
         document.querySelector('meta[name="theme-color"]').content = dark ? '#181715' : '#f6f1e8';
+        redrawInk();
       }
 
       function initializeTheme() {
         const stored = localStorage.getItem(THEME_KEY);
         const preferred = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         setTheme(stored === 'dark' || stored === 'light' ? stored : preferred);
+      }
+
+      function inkColor() {
+        return getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#28241f';
+      }
+
+      function canvasSize() {
+        const rect = elements.handwritingCanvas.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      }
+
+      function drawStroke(context, stroke, width, height, color = inkColor()) {
+        const points = stroke.points;
+        if (!points.length || !width || !height) return;
+        context.strokeStyle = color;
+        context.fillStyle = color;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+
+        if (points.length === 1) {
+          const point = points[0];
+          const radius = stroke.width * (0.55 + point.p * 0.6) / 2;
+          context.beginPath();
+          context.arc(point.x * width, point.y * height, radius, 0, Math.PI * 2);
+          context.fill();
+          return;
+        }
+
+        for (let index = 1; index < points.length; index += 1) {
+          const previous = points[index - 1];
+          const point = points[index];
+          context.lineWidth = stroke.width * (0.55 + ((previous.p + point.p) / 2) * 0.75);
+          context.beginPath();
+          context.moveTo(previous.x * width, previous.y * height);
+          context.lineTo(point.x * width, point.y * height);
+          context.stroke();
+        }
+      }
+
+      function redrawInk(colorOverride) {
+        const canvas = elements.handwritingCanvas;
+        const { width, height } = canvasSize();
+        if (!width || !height) return;
+        const ratio = Math.min(window.devicePixelRatio || 1, 3);
+        const pixelWidth = Math.round(width * ratio);
+        const pixelHeight = Math.round(height * ratio);
+        if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+          canvas.width = pixelWidth;
+          canvas.height = pixelHeight;
+        }
+        const context = canvas.getContext('2d');
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.clearRect(0, 0, width, height);
+        const note = getActiveNote();
+        (note?.ink || []).forEach((stroke) => drawStroke(context, stroke, width, height, colorOverride));
+      }
+
+      function updateInkControls() {
+        const hasInk = Boolean(getActiveNote()?.ink?.length);
+        elements.undoInk.disabled = !hasInk;
+        elements.clearInk.disabled = !hasInk;
+        elements.handwritingPanel.classList.toggle('has-ink', hasInk);
+      }
+
+      function setHandwritingOpen(open) {
+        const shouldOpen = Boolean(open && getActiveNote());
+        state.handwritingOpen = shouldOpen;
+        elements.handwritingPanel.hidden = !shouldOpen;
+        elements.toggleHandwriting.classList.toggle('active', shouldOpen);
+        elements.toggleHandwriting.setAttribute('aria-expanded', String(shouldOpen));
+        elements.toggleHandwriting.setAttribute('aria-label', shouldOpen ? 'Close handwriting canvas' : 'Open handwriting canvas');
+        updateInkControls();
+        if (shouldOpen) requestAnimationFrame(() => redrawInk());
+      }
+
+      function setInkTool(tool) {
+        inkState.tool = tool === 'eraser' ? 'eraser' : 'pen';
+        const penActive = inkState.tool === 'pen';
+        elements.penTool.classList.toggle('active', penActive);
+        elements.eraserTool.classList.toggle('active', !penActive);
+        elements.penTool.setAttribute('aria-pressed', String(penActive));
+        elements.eraserTool.setAttribute('aria-pressed', String(!penActive));
+        elements.handwritingCanvas.classList.toggle('eraser-active', !penActive);
+      }
+
+      function pointerPoint(event) {
+        const rect = elements.handwritingCanvas.getBoundingClientRect();
+        return {
+          x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+          y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
+          p: event.pressure > 0 ? event.pressure : 0.5
+        };
+      }
+
+      function segmentDistanceSquared(pointX, pointY, startX, startY, endX, endY) {
+        const deltaX = endX - startX;
+        const deltaY = endY - startY;
+        if (!deltaX && !deltaY) return ((pointX - startX) ** 2) + ((pointY - startY) ** 2);
+        const amount = Math.max(0, Math.min(1,
+          (((pointX - startX) * deltaX) + ((pointY - startY) * deltaY)) / ((deltaX ** 2) + (deltaY ** 2))
+        ));
+        const nearestX = startX + amount * deltaX;
+        const nearestY = startY + amount * deltaY;
+        return ((pointX - nearestX) ** 2) + ((pointY - nearestY) ** 2);
+      }
+
+      function eraseAt(point) {
+        const note = getActiveNote();
+        if (!note?.ink?.length) return false;
+        const { width, height } = canvasSize();
+        const pointerX = point.x * width;
+        const pointerY = point.y * height;
+        const thresholdSquared = 14 ** 2;
+
+        for (let strokeIndex = note.ink.length - 1; strokeIndex >= 0; strokeIndex -= 1) {
+          const points = note.ink[strokeIndex].points;
+          let hit = false;
+          if (points.length === 1) {
+            const only = points[0];
+            hit = segmentDistanceSquared(pointerX, pointerY, only.x * width, only.y * height, only.x * width, only.y * height) <= thresholdSquared;
+          } else {
+            for (let index = 1; index < points.length; index += 1) {
+              const start = points[index - 1];
+              const end = points[index];
+              if (segmentDistanceSquared(pointerX, pointerY, start.x * width, start.y * height, end.x * width, end.y * height) <= thresholdSquared) {
+                hit = true;
+                break;
+              }
+            }
+          }
+          if (hit) {
+            note.ink.splice(strokeIndex, 1);
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function commitInkChange() {
+        if (!inkState.dirty) return;
+        const note = getActiveNote();
+        if (!note) return;
+        note.updatedAt = Date.now();
+        inkState.dirty = false;
+        updateInkControls();
+        renderList();
+        renderMeta(note);
+        scheduleSave();
+      }
+
+      function startInk(event) {
+        if (event.button !== undefined && event.button !== 0) return;
+        const note = getActiveNote();
+        if (!note) return;
+        event.preventDefault();
+        elements.handwritingCanvas.setPointerCapture(event.pointerId);
+        inkState.pointerId = event.pointerId;
+        inkState.dirty = false;
+        const point = pointerPoint(event);
+
+        if (inkState.tool === 'eraser') {
+          inkState.dirty = eraseAt(point);
+          if (inkState.dirty) redrawInk();
+          return;
+        }
+
+        const stroke = { width: 2.4, points: [point] };
+        note.ink ||= [];
+        note.ink.push(stroke);
+        inkState.currentStroke = stroke;
+        inkState.dirty = true;
+        redrawInk();
+      }
+
+      function moveInk(event) {
+        if (event.pointerId !== inkState.pointerId) return;
+        event.preventDefault();
+        const events = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [event];
+
+        if (inkState.tool === 'eraser') {
+          let erased = false;
+          events.forEach((item) => { erased = eraseAt(pointerPoint(item)) || erased; });
+          if (erased) {
+            inkState.dirty = true;
+            redrawInk();
+          }
+          return;
+        }
+
+        if (!inkState.currentStroke) return;
+        events.forEach((item) => inkState.currentStroke.points.push(pointerPoint(item)));
+        redrawInk();
+      }
+
+      function endInk(event) {
+        if (event.pointerId !== inkState.pointerId) return;
+        if (elements.handwritingCanvas.hasPointerCapture(event.pointerId)) {
+          elements.handwritingCanvas.releasePointerCapture(event.pointerId);
+        }
+        inkState.pointerId = null;
+        inkState.currentStroke = null;
+        commitInkChange();
+      }
+
+      function undoInk() {
+        const note = getActiveNote();
+        if (!note?.ink?.length) return;
+        note.ink.pop();
+        inkState.dirty = true;
+        redrawInk();
+        commitInkChange();
+      }
+
+      function clearInk() {
+        const note = getActiveNote();
+        if (!note?.ink?.length) return;
+        if (!window.confirm('Clear all handwriting from this note?')) return;
+        note.ink = [];
+        inkState.dirty = true;
+        redrawInk();
+        commitInkChange();
       }
 
       function applyFormatting(button) {
@@ -812,6 +1163,7 @@
             id: makeId(),
             title: String(note.title || ''),
             content: sanitizeHtml(note.content),
+            ink: sanitizeInk(note.ink),
             createdAt: Number(note.createdAt) || Date.now(),
             updatedAt: Number(note.updatedAt) || Date.now()
           }));
@@ -837,6 +1189,17 @@
       $('#importNotes').addEventListener('click', () => $('#importFile').click());
       $('#importFile').addEventListener('change', (event) => importNotes(event.target.files[0]));
 
+      elements.toggleHandwriting.addEventListener('click', () => setHandwritingOpen(!state.handwritingOpen));
+      $('#closeHandwriting').addEventListener('click', () => setHandwritingOpen(false));
+      elements.penTool.addEventListener('click', () => setInkTool('pen'));
+      elements.eraserTool.addEventListener('click', () => setInkTool('eraser'));
+      elements.undoInk.addEventListener('click', undoInk);
+      elements.clearInk.addEventListener('click', clearInk);
+      elements.handwritingCanvas.addEventListener('pointerdown', startInk);
+      elements.handwritingCanvas.addEventListener('pointermove', moveInk);
+      elements.handwritingCanvas.addEventListener('pointerup', endInk);
+      elements.handwritingCanvas.addEventListener('pointercancel', endInk);
+
       elements.noteList.addEventListener('click', (event) => {
         const item = event.target.closest('.note-item');
         if (item) selectNote(item.dataset.id);
@@ -850,7 +1213,7 @@
       $('#formatToolbar').addEventListener('mousedown', (event) => event.preventDefault());
       $('#formatToolbar').addEventListener('click', (event) => {
         const button = event.target.closest('.toolbar-button');
-        if (button) applyFormatting(button);
+        if (button?.matches('[data-command], [data-block]')) applyFormatting(button);
       });
 
       elements.search.addEventListener('input', () => {
@@ -887,10 +1250,23 @@
           event.preventDefault();
           saveNow();
         }
+        if (modifier && event.key.toLowerCase() === 'z' && document.activeElement === elements.handwritingCanvas) {
+          event.preventDefault();
+          undoInk();
+        }
         if (event.key === 'Escape') closeSidebar();
       });
 
       window.addEventListener('beforeunload', saveNow);
+      window.addEventListener('beforeprint', () => redrawInk('#111111'));
+      window.addEventListener('afterprint', () => redrawInk());
+      window.addEventListener('resize', () => redrawInk());
+
+      if ('ResizeObserver' in window) {
+        new ResizeObserver(() => {
+          if (state.handwritingOpen) redrawInk();
+        }).observe(elements.handwritingPanel.querySelector('.canvas-wrap'));
+      }
 
       initializeTheme();
       load();
