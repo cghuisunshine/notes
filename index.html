@@ -589,6 +589,9 @@
               <button class="toolbar-button" id="undoInk" type="button" title="Undo stroke" aria-label="Undo last stroke" disabled>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 7-5 5 5 5"/><path d="M5 12h8a6 6 0 0 1 6 6"/></svg>
               </button>
+              <button class="toolbar-button" id="copyInk" type="button" title="Copy handwriting" aria-label="Copy handwriting as image" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M15 9V5.5A1.5 1.5 0 0 0 13.5 4h-9A1.5 1.5 0 0 0 3 5.5v9A1.5 1.5 0 0 0 4.5 16H9"/></svg>
+              </button>
               <button class="toolbar-button" id="clearInk" type="button" title="Clear handwriting" aria-label="Clear handwriting" disabled>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14"/></svg>
               </button>
@@ -644,6 +647,7 @@
         penTool: $('#penTool'),
         eraserTool: $('#eraserTool'),
         undoInk: $('#undoInk'),
+        copyInk: $('#copyInk'),
         clearInk: $('#clearInk')
       };
 
@@ -962,6 +966,7 @@
       function updateInkControls() {
         const hasInk = Boolean(getActiveNote()?.ink?.length);
         elements.undoInk.disabled = !hasInk;
+        elements.copyInk.disabled = !hasInk;
         elements.clearInk.disabled = !hasInk;
         elements.handwritingPanel.classList.toggle('has-ink', hasInk);
       }
@@ -1115,6 +1120,46 @@
         commitInkChange();
       }
 
+      async function copyInk() {
+        const note = getActiveNote();
+        if (!note?.ink?.length) return;
+
+        try {
+          if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+            throw new Error('Image clipboard is not supported');
+          }
+
+          const { width, height } = canvasSize();
+          if (!width || !height) throw new Error('Canvas is not visible');
+          const scale = Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
+          const copyCanvas = document.createElement('canvas');
+          copyCanvas.width = Math.round(width * scale);
+          copyCanvas.height = Math.round(height * scale);
+          const context = copyCanvas.getContext('2d');
+          const styles = getComputedStyle(document.documentElement);
+          context.scale(scale, scale);
+          context.fillStyle = styles.getPropertyValue('--paper').trim() || '#fffdf8';
+          context.fillRect(0, 0, width, height);
+          context.strokeStyle = styles.getPropertyValue('--line').trim() || '#d8d0c3';
+          context.lineWidth = 1;
+          for (let y = 36; y < height; y += 36) {
+            context.beginPath();
+            context.moveTo(0, y - 0.5);
+            context.lineTo(width, y - 0.5);
+            context.stroke();
+          }
+          note.ink.forEach((stroke) => drawStroke(context, stroke, width, height));
+
+          const blob = await new Promise((resolve, reject) => {
+            copyCanvas.toBlob((result) => result ? resolve(result) : reject(new Error('Could not create image')), 'image/png');
+          });
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          elements.saveStatus.textContent = 'Handwriting copied';
+        } catch (error) {
+          elements.saveStatus.textContent = 'Could not copy handwriting';
+        }
+      }
+
       function clearInk() {
         const note = getActiveNote();
         if (!note?.ink?.length) return;
@@ -1194,6 +1239,7 @@
       elements.penTool.addEventListener('click', () => setInkTool('pen'));
       elements.eraserTool.addEventListener('click', () => setInkTool('eraser'));
       elements.undoInk.addEventListener('click', undoInk);
+      elements.copyInk.addEventListener('click', copyInk);
       elements.clearInk.addEventListener('click', clearInk);
       elements.handwritingCanvas.addEventListener('pointerdown', startInk);
       elements.handwritingCanvas.addEventListener('pointermove', moveInk);
