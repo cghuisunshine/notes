@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hans">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -21,6 +21,17 @@
       --hover: #e7dfd3;
       --danger: #a13f34;
       --focus: rgba(125, 76, 54, 0.24);
+
+      /* Latin first, then CJK — so English keeps Avenir and Chinese
+         falls to a proper Han face instead of a default fallback. */
+      --font-ui: "Avenir Next", Avenir, "Helvetica Neue",
+                 "PingFang SC", "Hiragino Sans GB", "Heiti SC",
+                 "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC",
+                 "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+      --font-read: "Avenir Next", Avenir, "Helvetica Neue",
+                   "PingFang SC", "Hiragino Sans GB", "Heiti SC",
+                   "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC",
+                   "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
     }
 
     [data-theme="dark"] {
@@ -49,8 +60,14 @@
       overflow: hidden;
       background: var(--page);
       color: var(--ink);
-      font-family: "Avenir Next", Avenir, "Helvetica Neue", sans-serif;
+      font-family: var(--font-ui);
       font-size: 15px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      /* CJK punctuation compression + correct Simplified Chinese glyph forms */
+      font-variant-east-asian: simplified;
+      font-kerning: normal;
     }
 
     button, input { font: inherit; }
@@ -281,10 +298,12 @@
       border: 0;
       background: transparent;
       color: var(--ink);
+      font-family: var(--font-read);
       font-size: clamp(28px, 4vw, 38px);
       font-weight: 670;
-      line-height: 1.2;
-      letter-spacing: -0.035em;
+      line-height: 1.32;
+      /* was -0.035em: tight Latin tracking crushes Han characters */
+      letter-spacing: -0.01em;
     }
 
     #title::placeholder { color: var(--line-strong); }
@@ -392,9 +411,24 @@
     #editor {
       min-height: 380px;
       color: var(--ink);
+      font-family: var(--font-read);
       font-size: 17px;
-      line-height: 1.72;
-      overflow-wrap: anywhere;
+      /* CJK needs more leading than Latin at the same size */
+      line-height: 1.9;
+      /* Break long unbroken Latin/URLs, but keep normal CJK line breaking
+         and never split an ordinary English word. */
+      overflow-wrap: break-word;
+      word-break: normal;
+      line-break: strict;
+      /* Don't strand CJK closing punctuation at the start of a line */
+      hanging-punctuation: allow-end;
+      text-spacing-trim: trim-start;
+    }
+
+    /* Automatic gap between Han characters and adjacent Latin/digits
+       (the "汉字 abc 123" spacing rule) where the engine supports it. */
+    #editor, #title, .note-item-title, .note-item-preview {
+      text-autospace: normal;
     }
 
     #editor:focus { outline: 0; }
@@ -406,8 +440,8 @@
     }
 
     #editor p { margin: 0 0 0.9em; }
-    #editor h2 { margin: 1.4em 0 0.5em; font-size: 1.45em; line-height: 1.3; }
-    #editor h3 { margin: 1.25em 0 0.45em; font-size: 1.15em; line-height: 1.35; }
+    #editor h2 { margin: 1.4em 0 0.5em; font-size: 1.45em; line-height: 1.45; font-weight: 650; }
+    #editor h3 { margin: 1.25em 0 0.45em; font-size: 1.15em; line-height: 1.5; font-weight: 650; }
     #editor ul, #editor ol { margin: 0.4em 0 1em; padding-left: 1.6em; }
     #editor blockquote { margin: 1em 0; padding-left: 16px; border-left: 3px solid var(--line-strong); color: var(--muted); }
     #editor a { color: var(--accent); }
@@ -491,7 +525,9 @@
       .editor-shell, .editor-scroll { display: block !important; overflow: visible; }
       .document { width: 100%; padding: 0; }
       #title { color: #111; }
-      #editor { color: #111; }
+      #editor { color: #111; line-height: 1.8; }
+      #editor h2, #editor h3 { break-after: avoid; page-break-after: avoid; }
+      #editor p, #editor li, #editor blockquote { orphans: 2; widows: 2; }
       .handwriting-panel { margin: 18px 0 24px; border-color: #bbb; }
       .handwriting-panel.has-ink[hidden] { display: block !important; }
       .handwriting-panel:not(.has-ink) { display: none !important; }
@@ -661,6 +697,30 @@
         return (container.textContent || '').replace(/\s+/g, ' ').trim();
       }
 
+      function readableUrl(url) {
+        try {
+          return decodeURI(String(url));
+        } catch (error) {
+          return String(url);
+        }
+      }
+
+      function normalizeLinkLabels(root) {
+        root.querySelectorAll('a[href]').forEach((link) => {
+          const href = link.getAttribute('href');
+          const label = (link.textContent || '').trim();
+          if (!href || !/^https?:\/\//i.test(label)) return;
+
+          try {
+            if (new URL(label).href === new URL(href, window.location.href).href) {
+              link.textContent = readableUrl(label);
+            }
+          } catch (error) {
+            // Leave malformed or intentionally custom link labels unchanged.
+          }
+        });
+      }
+
       function sanitizeHtml(html) {
         const template = document.createElement('template');
         template.innerHTML = String(html || '');
@@ -670,9 +730,9 @@
             node.replaceWith(...node.childNodes);
             return;
           }
+          const href = node.tagName === 'A' ? node.getAttribute('href') : null;
           [...node.attributes].forEach((attribute) => node.removeAttribute(attribute.name));
           if (node.tagName === 'A') {
-            const href = node.getAttribute('href');
             if (href && /^(https?:|mailto:)/i.test(href)) {
               node.setAttribute('href', href);
               node.setAttribute('target', '_blank');
@@ -680,7 +740,44 @@
             }
           }
         });
+        normalizeLinkLabels(template.content);
         return template.innerHTML;
+      }
+
+      function insertUrl(url) {
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) return false;
+        const range = selection.getRangeAt(0);
+        if (!elements.editor.contains(range.commonAncestorContainer)) return false;
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = readableUrl(url);
+        range.deleteContents();
+        range.insertNode(link);
+        range.setStartAfter(link);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      }
+
+      function pasteReadableUrl(event) {
+        const text = event.clipboardData?.getData('text/plain').trim();
+        if (!text || /\s/.test(text)) return;
+
+        try {
+          const url = new URL(text);
+          if (!['http:', 'https:'].includes(url.protocol)) return;
+        } catch (error) {
+          return;
+        }
+
+        if (!insertUrl(text)) return;
+        event.preventDefault();
+        updateActiveNote();
       }
 
       function sanitizeInk(ink) {
@@ -1251,8 +1348,30 @@
         if (item) selectNote(item.dataset.id);
       });
 
-      elements.title.addEventListener('input', updateActiveNote);
-      elements.editor.addEventListener('input', updateActiveNote);
+      // IME (Chinese/Japanese/Korean) support: while a candidate is being
+      // composed the DOM holds half-finished pinyin, so hold off on
+      // normalising/saving until the composition is committed.
+      let composing = false;
+      const compositionTargets = [elements.title, elements.editor];
+      compositionTargets.forEach((el) => {
+        el.addEventListener('compositionstart', () => { composing = true; });
+        el.addEventListener('compositionend', () => {
+          composing = false;
+          if (el === elements.editor) normalizeLinkLabels(elements.editor);
+          updateActiveNote();
+        });
+      });
+
+      elements.title.addEventListener('input', () => {
+        if (composing) return;
+        updateActiveNote();
+      });
+      elements.editor.addEventListener('paste', pasteReadableUrl);
+      elements.editor.addEventListener('input', () => {
+        if (composing) return;
+        normalizeLinkLabels(elements.editor);
+        updateActiveNote();
+      });
       elements.editor.addEventListener('keyup', updateToolbarState);
       elements.editor.addEventListener('mouseup', updateToolbarState);
 
